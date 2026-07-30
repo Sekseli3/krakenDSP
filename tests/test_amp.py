@@ -1,0 +1,69 @@
+from __future__ import annotations
+
+import numpy as np
+import pytest
+from scipy.io import wavfile
+
+from kraken_dsp.amp import MAX_CABINET_IR_SAMPLES, AmpSettings, Version1Amp, default_cabinet_ir, load_cabinet_ir
+
+
+@pytest.mark.parametrize("sample_rate", [44_100, 48_000])
+def test_amp_produces_finite_limited_mono_output(sample_rate: int) -> None:
+    amp = Version1Amp(sample_rate)
+    time = np.arange(2_048) / sample_rate
+    guitar_like_input = 0.08 * np.sin(2 * np.pi * 110 * time) + 0.02 * np.sin(2 * np.pi * 440 * time)
+
+    output = amp.process_block(guitar_like_input)
+
+    assert output.shape == guitar_like_input.shape
+    assert output.dtype == np.float32
+    assert np.all(np.isfinite(output))
+    assert np.max(np.abs(output)) <= amp.settings.limiter_ceiling + 1e-6
+    assert np.max(np.abs(output)) > 1e-4
+
+
+@pytest.mark.parametrize("sample_rate", [44_100, 48_000])
+def test_dc_blocker_removes_steady_asymmetric_offset(sample_rate: int) -> None:
+    amp = Version1Amp(sample_rate, settings=AmpSettings(cabinet_bypass=True))
+
+    for _ in range(60):
+        output = amp.process_block(np.full(128, 0.1))
+
+    assert abs(float(np.mean(output))) < 1e-3
+
+
+def test_default_cabinet_has_expected_length_and_finite_values() -> None:
+    cabinet = default_cabinet_ir(48_000)
+    assert cabinet.shape == (257,)
+    assert np.all(np.isfinite(cabinet))
+
+
+def test_amp_rejects_unsupported_sample_rate() -> None:
+    with pytest.raises(ValueError, match="44,100"):
+        Version1Amp(96_000)
+
+
+@pytest.mark.parametrize(
+    "settings, message",
+    [
+        (AmpSettings(drive=float("nan")), "Drive must be finite"),
+        (AmpSettings(input_gain_db=float("inf")), "Input gain must be finite"),
+        (AmpSettings(drive=21.0), "Drive must be greater"),
+    ],
+)
+def test_amp_rejects_nonfinite_and_unsafe_controls(settings: AmpSettings, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        Version1Amp(48_000, settings=settings)
+
+
+def test_amp_rejects_an_unbounded_direct_cabinet_ir() -> None:
+    with pytest.raises(ValueError, match="at most"):
+        Version1Amp(48_000, cabinet_ir=np.ones(MAX_CABINET_IR_SAMPLES + 1))
+
+
+def test_loader_rejects_long_ir_after_resampling(tmp_path) -> None:
+    ir_path = tmp_path / "long_ir.wav"
+    wavfile.write(ir_path, 48_000, np.ones(MAX_CABINET_IR_SAMPLES + 1, dtype=np.float32))
+
+    with pytest.raises(ValueError, match="after resampling"):
+        load_cabinet_ir(ir_path, 48_000)
