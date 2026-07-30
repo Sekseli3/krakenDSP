@@ -350,6 +350,28 @@ class LiveAmp:
         self.meter = Meter()
         self._input_channel_index = config.input_channel - 1
         self.callback_error: Exception | None = None
+        self._pending_amp: _BlockProcessor | None = None
+        self._fading_amp: _BlockProcessor | None = None
+        self._fade_samples_total = max(1, round(config.sample_rate * 0.025))
+        self._fade_samples_remaining = 0
+
+    def request_processor(self, amp: _BlockProcessor) -> None:
+        """Request a click-resistant processor swap from a control/UI thread.
+
+        Assigning this pending reference is atomic under CPython's GIL. The
+        audio callback adopts only the newest request at its next block edge.
+        """
+
+        self._pending_amp = amp
+
+    def _adopt_pending_processor(self) -> None:
+        pending = self._pending_amp
+        if pending is None:
+            return
+        self._pending_amp = None
+        self._fading_amp = self.amp
+        self.amp = pending
+        self._fade_samples_remaining = self._fade_samples_total
 
     def callback(self, indata: np.ndarray, outdata: np.ndarray, _frames: int, _time: Any, status: sd.CallbackFlags) -> None:
         outdata.fill(0.0)
@@ -357,7 +379,19 @@ class LiveAmp:
             self.meter.add_status(status)
         input_samples = indata[:, self._input_channel_index]
         try:
+            self._adopt_pending_processor()
             processed = self.amp.process_block(input_samples)
+            if self._fading_amp is not None:
+                old_processed = self._fading_amp.process_block(input_samples)
+                frames = len(processed)
+                completed = self._fade_samples_total - self._fade_samples_remaining
+                end = min(1.0, (completed + frames) / self._fade_samples_total)
+                start = completed / self._fade_samples_total
+                ramp = np.linspace(start, end, frames, endpoint=False, dtype=np.float32)
+                processed = old_processed * (1.0 - ramp) + processed * ramp
+                self._fade_samples_remaining -= frames
+                if self._fade_samples_remaining <= 0:
+                    self._fading_amp = None
             outdata[:, :] = processed[:, np.newaxis]
             self.meter.update(input_samples, processed)
         except Exception as error:

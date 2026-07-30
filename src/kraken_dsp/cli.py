@@ -55,6 +55,23 @@ def _add_stream_options(parser: argparse.ArgumentParser, *, include_output: bool
     )
 
 
+def _add_amp_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--channel", choices=("i", "ii"), default="ii", help="Preamp voice: i is looser; ii is tighter high gain (default: ii).")
+    parser.add_argument("--gain", type=float, default=6.5, help="Preamp gain from 0 to 10 (default: 6.5).")
+    parser.add_argument("--input-gain-db", type=float, default=24.0, help="Digital input trim in dB (default: 24).")
+    parser.add_argument("--bass", type=float, default=5.0, help="Bass EQ from 0 to 10 (default: 5).")
+    parser.add_argument("--middle", type=float, default=5.0, help="Middle EQ from 0 to 10 (default: 5).")
+    parser.add_argument("--treble", type=float, default=5.0, help="Treble EQ from 0 to 10 (default: 5).")
+    parser.add_argument("--master", type=float, default=6.0, help="Master volume and power-amp drive from 0 to 10 (default: 6).")
+    parser.add_argument("--presence", type=float, default=4.0, help="Power-amp presence from 0 to 10 (default: 4).")
+    parser.add_argument("--presence-bright", action="store_true", help="Enable the brighter presence voicing.")
+    parser.add_argument("--bass-focus", choices=("loose", "tight"), default="tight", help="Power-section bass focus (default: tight).")
+    parser.add_argument("--sag", type=float, default=2.5, help="Power-supply sag from 0 to 10 (default: 2.5).")
+    parser.add_argument("--output-gain-db", type=float, default=-6.0, help="Final output trim in dB (default: -6).")
+    parser.add_argument("--cabinet-ir", type=Path, help="Path to a mono or stereo WAV cabinet impulse response.")
+    parser.add_argument("--cabinet-bypass", action="store_true", help="Bypass the cabinet filter (normally harsh; for debugging only).")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="kraken-dsp",
@@ -67,14 +84,13 @@ def build_parser() -> argparse.ArgumentParser:
     capture = subparsers.add_parser("capture", help="Meter a Focusrite input without playback; use this first.")
     _add_stream_options(capture, include_output=False)
 
-    run = subparsers.add_parser("run", help="Run the three-stage high-gain amp on a live guitar input.")
+    run = subparsers.add_parser("run", help="Run the Kraken-inspired amp on a live guitar input.")
     _add_stream_options(run, include_output=True)
-    run.add_argument("--channel", choices=("i", "ii"), default="ii", help="Preamp voice: i is looser; ii is tighter high gain (default: ii).")
-    run.add_argument("--gain", type=float, default=6.5, help="Preamp gain from 0 to 10 (default: 6.5).")
-    run.add_argument("--input-gain-db", type=float, default=24.0, help="Digital input trim in dB (default: 24).")
-    run.add_argument("--output-gain-db", type=float, default=-18.0, help="Final output gain in dB (default: -18).")
-    run.add_argument("--cabinet-ir", type=Path, help="Path to a mono or stereo WAV cabinet impulse response.")
-    run.add_argument("--cabinet-bypass", action="store_true", help="Bypass the cabinet filter (normally harsh; for debugging only).")
+    _add_amp_options(run)
+
+    gui = subparsers.add_parser("gui", help="Open a live desktop control panel for the amp.")
+    _add_stream_options(gui, include_output=True)
+    _add_amp_options(gui)
     return parser
 
 
@@ -114,6 +130,14 @@ def _run_amp(args: argparse.Namespace) -> None:
         channel=args.channel,
         gain=args.gain,
         input_gain_db=args.input_gain_db,
+        bass=args.bass,
+        middle=args.middle,
+        treble=args.treble,
+        master=args.master,
+        presence=args.presence,
+        presence_bright=args.presence_bright,
+        bass_focus=args.bass_focus,
+        sag=args.sag,
         output_gain_db=args.output_gain_db,
         cabinet_bypass=args.cabinet_bypass,
     )
@@ -134,6 +158,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             _run_capture(args)
         elif args.command == "run":
             _run_amp(args)
+        elif args.command == "gui":
+            try:
+                from .gui import launch_gui
+            except ModuleNotFoundError as error:
+                if error.name == "tkinter":
+                    raise RuntimeError("Tkinter is not installed. On Ubuntu, run: sudo apt install python3-tk") from error
+                raise
+            launch_gui(args)
         else:  # Defensive: argparse already makes this unreachable.
             parser.error(f"Unknown command: {args.command}")
     except KeyboardInterrupt:

@@ -87,6 +87,28 @@ def test_live_callback_mutes_and_records_a_dsp_error() -> None:
     assert np.all(outdata == 0.0)
 
 
+def test_live_callback_crossfades_a_requested_processor_swap() -> None:
+    class ConstantAmp:
+        def __init__(self, value: float) -> None:
+            self.value = value
+
+        def process_block(self, input_samples):
+            return np.full(len(input_samples), self.value, dtype=np.float32)
+
+    live_amp = LiveAmp(ConstantAmp(0.0), StreamConfig(sample_rate=48_000))
+    indata = np.zeros((128, 1), dtype=np.float32)
+    outdata = np.empty((128, 2), dtype=np.float32)
+    live_amp.request_processor(ConstantAmp(1.0))
+
+    live_amp.callback(indata, outdata, 128, None, sd.CallbackFlags())
+    assert np.all(outdata >= 0.0)
+    assert np.all(outdata < 1.0)
+
+    for _ in range(12):
+        live_amp.callback(indata, outdata, 128, None, sd.CallbackFlags())
+    assert np.allclose(outdata, 1.0)
+
+
 def test_auto_duplex_selection_never_mixes_two_focusrites(monkeypatch) -> None:
     two_focusrites = [
         {"name": "Focusrite Scarlett A", "max_input_channels": 2, "max_output_channels": 2, "default_samplerate": 48_000},

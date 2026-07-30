@@ -102,12 +102,39 @@ def test_gain_i_and_gain_ii_have_distinct_voicings() -> None:
     assert not np.allclose(output_i, output_ii, atol=1e-4)
 
 
+def test_tone_and_power_controls_change_the_version2_output() -> None:
+    samples = 0.04 * np.sin(2 * np.pi * 110 * np.arange(4_096) / 48_000)
+    neutral = Version2Amp(48_000, AdvancedAmpSettings(bass=5, middle=5, treble=5, master=6, presence=0, sag=0))
+    shaped = Version2Amp(
+        48_000,
+        AdvancedAmpSettings(bass=8, middle=2, treble=8, master=9, presence=8, presence_bright=True, bass_focus="loose", sag=6),
+    )
+
+    neutral_output = neutral.process_block(samples)
+    shaped_output = shaped.process_block(samples)
+
+    assert not np.allclose(neutral_output, shaped_output, atol=1e-4)
+
+
+def test_master_control_reduces_output_level() -> None:
+    samples = 0.03 * np.sin(2 * np.pi * 220 * np.arange(4_096) / 48_000)
+    quiet = Version2Amp(48_000, AdvancedAmpSettings(master=1, sag=0))
+    loud = Version2Amp(48_000, AdvancedAmpSettings(master=9, sag=0))
+
+    quiet_output = quiet.process_block(samples)
+    loud_output = loud.process_block(samples)
+
+    assert np.sqrt(np.mean(np.square(loud_output))) > np.sqrt(np.mean(np.square(quiet_output))) * 4
+
+
 @pytest.mark.parametrize(
     "settings, message",
     [
         (AdvancedAmpSettings(channel="iii"), "Channel"),
         (AdvancedAmpSettings(gain=10.1), "Gain"),
         (AdvancedAmpSettings(gain=float("nan")), "Gain must be finite"),
+        (AdvancedAmpSettings(bass=10.1), "Bass"),
+        (AdvancedAmpSettings(bass_focus="neutral"), "Bass Focus"),
     ],
 )
 def test_version2_rejects_invalid_controls(settings: AdvancedAmpSettings, message: str) -> None:

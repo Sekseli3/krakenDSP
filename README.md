@@ -696,7 +696,8 @@ as well as a useful foundation for offline testing. It uses `sounddevice`
 audio interface, process it, and return the processed mono signal on the
 interface outputs.
 
-The live implementation now covers Version 2 of the preamp:
+The live implementation now includes the three-stage preamp, the shared
+three-band tone stack, and a simplified power amp:
 
 ```text
 Focusrite guitar input
@@ -704,14 +705,18 @@ Focusrite guitar input
   → Stage 1: 480 Hz pre-emphasis + asymmetric tanh + DC blocker
   → Stage 2: bass tightening + 170 Hz pre-emphasis + asymmetric tanh + DC blocker
   → Stage 3: high-pass + asymmetric tanh + low-pass + DC blocker
+  → Bass / Middle / Treble tone stack
+  → Master → sag → power-amp saturation
+  → Presence + Bass Focus
   → cabinet FIR
   → output safety limiter
   → Focusrite output
 ```
 
 Use `--channel i` for the looser, darker British-style voice, or `--channel ii`
-for the tighter modern high-gain voice. Gain II is the default. Tone controls,
-power amp/sag, and oversampling are the next milestones.
+for the tighter modern high-gain voice. Gain II is the default. Oversampling,
+parameter smoothing, and a measurement-based circuit model are still future
+quality improvements.
 
 #### Run the live Python prototype
 
@@ -763,16 +768,50 @@ kraken-dsp run \
   --blocksize 128
 ```
 
-The live output starts conservatively at -18 dB. The primary controls are the
-0--10 preamp gain, Gain I/II voice, and digital input trim:
+The core amp controls all use familiar 0--10 positions: `--gain`, `--bass`,
+`--middle`, `--treble`, `--master`, `--presence`, and `--sag`. Bass Focus is a
+power-section switch: use `tight` for modern palm mutes and `loose` for more
+resonance. The master control changes both level and power-amp saturation.
+
+The live output starts at -6 dB. A tight high-gain starting point is:
 
 ```bash
-kraken-dsp run --channel ii --gain 7.5 --input-gain-db 24 --output-gain-db -18
+kraken-dsp run \
+  --channel ii --gain 7.5 --input-gain-db 24 \
+  --bass 4 --middle 6 --treble 5 \
+  --master 6 --presence 5 --bass-focus tight --sag 2.5 \
+  --output-gain-db -6
 ```
 
 If the input is still too clean, raise `--gain` first, then increase
 `--input-gain-db` by 3 dB at a time. Lower `--output-gain-db` before raising
-the analogue Focusrite output volume.
+the analogue Focusrite output volume. `--presence-bright` enables the brighter
+presence voicing.
+
+#### Live control GUI
+
+The small desktop GUI provides live sliders for every current amp control,
+channel buttons, Bass Focus, cabinet bypass, cabinet-IR selection, and input/
+output peak meters. Parameter changes crossfade over 25 ms when you are
+playing, rather than abruptly replacing the audio block.
+
+```bash
+kraken-dsp gui --input-device 3 --output-device 3 --input-channel 1 --sample-rate 48000
+```
+
+When using uv, run the same command through the project environment:
+
+```bash
+uv run kraken-dsp gui --input-device 16 --output-device 16 --input-channel 1 --sample-rate 44100
+```
+
+On Ubuntu, use the PipeWire device index shown by `kraken-dsp devices` (for
+example `16` on the Focusrite setup above). If Tkinter is absent, install it
+from the system package manager:
+
+```bash
+sudo apt install python3-tk
+```
 
 The app includes a short, neutral speaker-like FIR so it works without a binary
 asset. For a much more realistic result, supply a cabinet WAV IR; stereo IRs
@@ -801,6 +840,10 @@ Therefore:
 * Gain I and Gain II behaviour is interpretive
 * The power amp is heavily simplified
 * The cabinet IR will strongly influence the final sound
+* The tone stack, Presence, Bass Focus, and sag are control-level approximations
+  rather than measurements of the analogue circuit
+* Hardware-specific features such as dual masters, reverb, the effects loop,
+  and footswitching vary by Kraken model and are not part of this prototype
 
 The objective is initially to produce a convincing high-gain amplifier, not a component-perfect reconstruction.
 

@@ -8,7 +8,7 @@ All filters and convolvers retain state between blocks for live use.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import gcd, isfinite, pi, sin, sqrt
+from math import exp, gcd, isfinite, pi, sin, sqrt
 from pathlib import Path
 from typing import Final
 
@@ -57,7 +57,15 @@ class AdvancedAmpSettings:
     channel: str = "ii"
     gain: float = 6.5
     input_gain_db: float = 24.0
-    output_gain_db: float = -18.0
+    bass: float = 5.0
+    middle: float = 5.0
+    treble: float = 5.0
+    master: float = 6.0
+    presence: float = 4.0
+    presence_bright: bool = False
+    bass_focus: str = "tight"
+    sag: float = 2.5
+    output_gain_db: float = -6.0
     cabinet_gain_db: float = 0.0
     cabinet_bypass: bool = False
     limiter_ceiling: float = 0.944  # -0.5 dBFS
@@ -138,6 +146,55 @@ def high_shelf_sos(
     a1 = 2.0 * ((amplitude - 1.0) - (amplitude + 1.0) * cosine)
     a2 = (amplitude + 1.0) - (amplitude - 1.0) * cosine - beta
 
+    return np.array([[b0 / a0, b1 / a0, b2 / a0, 1.0, a1 / a0, a2 / a0]])
+
+
+def low_shelf_sos(
+    sample_rate: float,
+    frequency: float,
+    gain_db: float,
+    *,
+    slope: float = 1.0,
+) -> np.ndarray:
+    """Return an RBJ low-shelf biquad as a second-order-section array."""
+
+    _validate_frequency("Low-shelf frequency", frequency, sample_rate)
+    if slope <= 0:
+        raise ValueError("Shelf slope must be positive")
+
+    amplitude = 10.0 ** (gain_db / 40.0)
+    omega = 2.0 * pi * frequency / sample_rate
+    cosine = np.cos(omega)
+    alpha = sin(omega) / 2.0 * sqrt((amplitude + 1.0 / amplitude) * (1.0 / slope - 1.0) + 2.0)
+    beta = 2.0 * sqrt(amplitude) * alpha
+
+    b0 = amplitude * ((amplitude + 1.0) - (amplitude - 1.0) * cosine + beta)
+    b1 = 2.0 * amplitude * ((amplitude - 1.0) - (amplitude + 1.0) * cosine)
+    b2 = amplitude * ((amplitude + 1.0) - (amplitude - 1.0) * cosine - beta)
+    a0 = (amplitude + 1.0) + (amplitude - 1.0) * cosine + beta
+    a1 = -2.0 * ((amplitude - 1.0) + (amplitude + 1.0) * cosine)
+    a2 = (amplitude + 1.0) + (amplitude - 1.0) * cosine - beta
+
+    return np.array([[b0 / a0, b1 / a0, b2 / a0, 1.0, a1 / a0, a2 / a0]])
+
+
+def peaking_eq_sos(sample_rate: float, frequency: float, gain_db: float, *, q: float = 0.8) -> np.ndarray:
+    """Return an RBJ peaking-EQ biquad as a second-order-section array."""
+
+    _validate_frequency("Peaking-EQ frequency", frequency, sample_rate)
+    if q <= 0:
+        raise ValueError("Peaking-EQ Q must be positive")
+
+    amplitude = 10.0 ** (gain_db / 40.0)
+    omega = 2.0 * pi * frequency / sample_rate
+    cosine = np.cos(omega)
+    alpha = sin(omega) / (2.0 * q)
+    b0 = 1.0 + alpha * amplitude
+    b1 = -2.0 * cosine
+    b2 = 1.0 - alpha * amplitude
+    a0 = 1.0 + alpha / amplitude
+    a1 = -2.0 * cosine
+    a2 = 1.0 - alpha / amplitude
     return np.array([[b0 / a0, b1 / a0, b2 / a0, 1.0, a1 / a0, a2 / a0]])
 
 
@@ -425,8 +482,40 @@ _PREAMP_PROFILES: Final[dict[str, _PreampProfile]] = {
 }
 
 
+class _BlockEnvelopeFollower:
+    """A block-rate envelope follower for the slow power-supply sag effect."""
+
+    def __init__(self, sample_rate: float, *, attack_ms: float = 25.0, release_ms: float = 250.0) -> None:
+        self._sample_rate = sample_rate
+        self._attack_seconds = attack_ms / 1_000.0
+        self._release_seconds = release_ms / 1_000.0
+        self._value = 0.0
+
+    def process(self, samples: np.ndarray) -> float:
+        target = float(sqrt(np.mean(np.square(samples)))) if len(samples) else 0.0
+        time_constant = self._attack_seconds if target > self._value else self._release_seconds
+        coefficient = exp(-len(samples) / (self._sample_rate * time_constant))
+        self._value = coefficient * self._value + (1.0 - coefficient) * target
+        return self._value
+
+
+def _tone_knob_to_db(value: float) -> float:
+    """Map a familiar 0--10 tone knob to the planned +/-10 dB range."""
+
+    return (value - 5.0) * 2.0
+
+
+def _master_to_linear(value: float) -> float:
+    """Use a log-like master taper while retaining headroom at normal settings."""
+
+    if value <= 0.0:
+        return 0.0
+    attenuation_db = -50.0 * (1.0 - value / 10.0) ** 1.5
+    return db_to_linear(attenuation_db)
+
+
 class Version2Amp:
-    """Three-stage high-gain preamp with the README's Gain I/II voicings.
+    """Kraken-inspired amp with three-stage preamp, EQ, and power controls.
 
     The nonlinear stages deliberately run at the native rate for this Python
     milestone. Oversampling is the next quality-focused step once the voicing
@@ -466,6 +555,18 @@ class Version2Amp:
         self._stage2_dc = _IIRFilter(np.array([1.0, -1.0]), np.array([1.0, -0.995]))
         self._stage3_dc = _IIRFilter(np.array([1.0, -1.0]), np.array([1.0, -0.995]))
 
+        # Shared passive-stack approximation: Bass / Middle / Treble at their
+        # documented starting frequencies and +/-10 dB control range.
+        self._bass = _SOSFilter(low_shelf_sos(self.sample_rate, 120.0, _tone_knob_to_db(self.settings.bass)))
+        self._middle = _SOSFilter(peaking_eq_sos(self.sample_rate, 750.0, _tone_knob_to_db(self.settings.middle), q=0.75))
+        self._treble = _SOSFilter(high_shelf_sos(self.sample_rate, 3_500.0, _tone_knob_to_db(self.settings.treble)))
+
+        presence_gain_db = self.settings.presence * 0.8 + (1.5 if self.settings.presence_bright else 0.0)
+        self._presence = _SOSFilter(high_shelf_sos(self.sample_rate, 3_200.0, presence_gain_db))
+        bass_focus_gain_db = 2.5 if self.settings.bass_focus == "loose" else -2.5
+        self._bass_focus = _SOSFilter(low_shelf_sos(self.sample_rate, 105.0, bass_focus_gain_db))
+        self._sag_envelope = _BlockEnvelopeFollower(self.sample_rate)
+
         self._input_gain = db_to_linear(self.settings.input_gain_db)
         self._output_gain = db_to_linear(self.settings.output_gain_db + self.settings.cabinet_gain_db)
         self._stage1_gain = profile.stage1_gain_start + profile.stage1_gain_span * gain_position
@@ -474,6 +575,9 @@ class Version2Amp:
         self._stage1_drive = profile.stage1_drive_start + profile.stage1_drive_span * gain_position
         self._stage2_drive = profile.stage2_drive_start + profile.stage2_drive_span * gain_position
         self._stage3_drive = profile.stage3_drive_start + profile.stage3_drive_span * gain_position
+        self._master_gain = _master_to_linear(self.settings.master)
+        self._power_drive = 1.0 + 1.8 * (self.settings.master / 10.0) ** 1.5
+        self._sag_amount = self.settings.sag * 0.08
 
         taps = Version1Amp._validate_cabinet_taps(cabinet_ir) if cabinet_ir is not None else default_cabinet_ir(self.sample_rate)
         self._cabinet = _FIRFilter(taps)
@@ -482,6 +586,12 @@ class Version2Amp:
         numeric_settings = {
             "Gain": self.settings.gain,
             "Input gain": self.settings.input_gain_db,
+            "Bass": self.settings.bass,
+            "Middle": self.settings.middle,
+            "Treble": self.settings.treble,
+            "Master": self.settings.master,
+            "Presence": self.settings.presence,
+            "Sag": self.settings.sag,
             "Output gain": self.settings.output_gain_db,
             "Cabinet gain": self.settings.cabinet_gain_db,
             "Limiter ceiling": self.settings.limiter_ceiling,
@@ -493,6 +603,18 @@ class Version2Amp:
             raise ValueError("Channel must be 'i' or 'ii'")
         if not 0.0 <= self.settings.gain <= 10.0:
             raise ValueError("Gain must be between 0 and 10")
+        for name, value in (
+            ("Bass", self.settings.bass),
+            ("Middle", self.settings.middle),
+            ("Treble", self.settings.treble),
+            ("Master", self.settings.master),
+            ("Presence", self.settings.presence),
+            ("Sag", self.settings.sag),
+        ):
+            if not 0.0 <= value <= 10.0:
+                raise ValueError(f"{name} must be between 0 and 10")
+        if self.settings.bass_focus not in {"loose", "tight"}:
+            raise ValueError("Bass Focus must be 'loose' or 'tight'")
         if not -36.0 <= self.settings.input_gain_db <= 48.0:
             raise ValueError("Input gain must be between -36 dB and +48 dB")
         if not -60.0 <= self.settings.output_gain_db <= 6.0:
@@ -530,6 +652,16 @@ class Version2Amp:
         x = asymmetric_tanh(x, drive=self._stage3_drive, bias=0.03, positive_shape=1.4, negative_shape=0.9)
         x = self._stage3_lowpass.process(x)
         x = self._stage3_dc.process(x)
+
+        x = self._bass.process(x)
+        x = self._middle.process(x)
+        x = self._treble.process(x)
+
+        x *= self._master_gain
+        sag_gain = 1.0 / (1.0 + self._sag_amount * self._sag_envelope.process(x))
+        x = np.tanh(x * sag_gain * self._power_drive)
+        x = self._presence.process(x)
+        x = self._bass_focus.process(x)
 
         if not self.settings.cabinet_bypass:
             x = self._cabinet.process(x)
