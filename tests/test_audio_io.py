@@ -36,6 +36,16 @@ def test_device_name_and_index_selection_validate_channel_count() -> None:
         resolve_device(DEVICES, "scarlett", "input", channels=3)
 
 
+def test_exact_device_name_wins_over_a_substring_match() -> None:
+    pipewire_devices = [
+        {"name": "sysdefault", "max_input_channels": 128, "max_output_channels": 128, "default_samplerate": 48_000},
+        {"name": "default", "max_input_channels": 64, "max_output_channels": 64, "default_samplerate": 44_100},
+    ]
+
+    assert resolve_device(pipewire_devices, "default", "input") == 1
+    assert resolve_device(pipewire_devices, "default", "output") == 1
+
+
 def test_missing_focusrite_without_default_is_actionable() -> None:
     devices = [DEVICES[0], DEVICES[2]]
     with pytest.raises(DeviceSelectionError, match="kraken-dsp devices"):

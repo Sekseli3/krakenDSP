@@ -10,7 +10,7 @@ from typing import Sequence
 
 import sounddevice as sd
 
-from .amp import AmpSettings, Version1Amp, load_cabinet_ir
+from .amp import AdvancedAmpSettings, Version2Amp, load_cabinet_ir
 from .audio_io import DeviceSelectionError, InputCapture, LiveAmp, StreamConfig, list_device_lines
 
 
@@ -67,11 +67,12 @@ def build_parser() -> argparse.ArgumentParser:
     capture = subparsers.add_parser("capture", help="Meter a Focusrite input without playback; use this first.")
     _add_stream_options(capture, include_output=False)
 
-    run = subparsers.add_parser("run", help="Process a live Focusrite guitar input and monitor the amp output.")
+    run = subparsers.add_parser("run", help="Run the three-stage high-gain amp on a live guitar input.")
     _add_stream_options(run, include_output=True)
-    run.add_argument("--input-gain-db", type=float, default=18.0, help="Digital preamp gain in dB (default: 18).")
-    run.add_argument("--output-gain-db", type=float, default=-12.0, help="Final output gain in dB (default: -12).")
-    run.add_argument("--drive", type=float, default=2.4, help="Asymmetric tanh drive (default: 2.4).")
+    run.add_argument("--channel", choices=("i", "ii"), default="ii", help="Preamp voice: i is looser; ii is tighter high gain (default: ii).")
+    run.add_argument("--gain", type=float, default=6.5, help="Preamp gain from 0 to 10 (default: 6.5).")
+    run.add_argument("--input-gain-db", type=float, default=24.0, help="Digital input trim in dB (default: 24).")
+    run.add_argument("--output-gain-db", type=float, default=-18.0, help="Final output gain in dB (default: -18).")
     run.add_argument("--cabinet-ir", type=Path, help="Path to a mono or stereo WAV cabinet impulse response.")
     run.add_argument("--cabinet-bypass", action="store_true", help="Bypass the cabinet filter (normally harsh; for debugging only).")
     return parser
@@ -109,14 +110,15 @@ def _run_capture(args: argparse.Namespace) -> None:
 
 def _run_amp(args: argparse.Namespace) -> None:
     config = _config_from_args(args, include_output=True)
-    settings = AmpSettings(
+    settings = AdvancedAmpSettings(
+        channel=args.channel,
+        gain=args.gain,
         input_gain_db=args.input_gain_db,
         output_gain_db=args.output_gain_db,
-        drive=args.drive,
         cabinet_bypass=args.cabinet_bypass,
     )
     cabinet_ir = load_cabinet_ir(args.cabinet_ir, config.sample_rate) if args.cabinet_ir else None
-    amp = Version1Amp(config.sample_rate, settings=settings, cabinet_ir=cabinet_ir)
+    amp = Version2Amp(config.sample_rate, settings=settings, cabinet_ir=cabinet_ir)
     live_amp = LiveAmp(amp, config)
     _run_with_meter(live_amp, live_amp.open_stream(), include_output=True)
 

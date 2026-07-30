@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from math import log10, sqrt
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
 import numpy as np
 import sounddevice as sd
 
-from .amp import Version1Amp
+
+
+class _BlockProcessor(Protocol):
+    def process_block(self, input_samples: np.ndarray) -> np.ndarray: ...
 
 
 FOCUSRITE_NAME_MARKERS = ("focusrite", "scarlett", "clarett", "vocaster")
@@ -76,11 +79,21 @@ def _matching_indices(
         return []
 
     needle = str(reference).casefold().strip()
-    return [
+    substring_matches = [
         index
         for index, device in enumerate(devices)
-        if needle in str(device.get("name", "")).casefold() and device_supports(device, direction, channels)
+        if needle in str(device.get("name", "")).casefold().strip()
+        and device_supports(device, direction, channels)
     ]
+    # PortAudio on Linux commonly exposes both ``default`` and ``sysdefault``.
+    # An exact device name is never ambiguous merely because it is a substring
+    # of another backend name.
+    exact_matches = [
+        index
+        for index in substring_matches
+        if str(devices[index].get("name", "")).casefold().strip() == needle
+    ]
+    return exact_matches or substring_matches
 
 
 def resolve_device(
@@ -331,7 +344,7 @@ def _validate_stream_settings(
 class LiveAmp:
     """Run a Version1Amp in a mono-in, duplicated-mono-out callback."""
 
-    def __init__(self, amp: Version1Amp, config: StreamConfig) -> None:
+    def __init__(self, amp: _BlockProcessor, config: StreamConfig) -> None:
         self.amp = amp
         self.config = config
         self.meter = Meter()

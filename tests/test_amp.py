@@ -4,7 +4,15 @@ import numpy as np
 import pytest
 from scipy.io import wavfile
 
-from kraken_dsp.amp import MAX_CABINET_IR_SAMPLES, AmpSettings, Version1Amp, default_cabinet_ir, load_cabinet_ir
+from kraken_dsp.amp import (
+    MAX_CABINET_IR_SAMPLES,
+    AdvancedAmpSettings,
+    AmpSettings,
+    Version1Amp,
+    Version2Amp,
+    default_cabinet_ir,
+    load_cabinet_ir,
+)
 
 
 @pytest.mark.parametrize("sample_rate", [44_100, 48_000])
@@ -67,3 +75,41 @@ def test_loader_rejects_long_ir_after_resampling(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="after resampling"):
         load_cabinet_ir(ir_path, 48_000)
+
+
+@pytest.mark.parametrize("sample_rate", [44_100, 48_000])
+def test_version2_amp_is_finite_and_limited(sample_rate: int) -> None:
+    amp = Version2Amp(sample_rate)
+    time = np.arange(4_096) / sample_rate
+    guitar_like_input = 0.035 * np.sin(2 * np.pi * 110 * time) + 0.012 * np.sin(2 * np.pi * 440 * time)
+
+    output = amp.process_block(guitar_like_input)
+
+    assert output.dtype == np.float32
+    assert np.all(np.isfinite(output))
+    assert np.max(np.abs(output)) <= amp.settings.limiter_ceiling + 1e-6
+    assert np.max(np.abs(output)) > 1e-3
+
+
+def test_gain_i_and_gain_ii_have_distinct_voicings() -> None:
+    samples = 0.04 * np.sin(2 * np.pi * 110 * np.arange(4_096) / 48_000)
+    gain_i = Version2Amp(48_000, AdvancedAmpSettings(channel="i", gain=6.5))
+    gain_ii = Version2Amp(48_000, AdvancedAmpSettings(channel="ii", gain=6.5))
+
+    output_i = gain_i.process_block(samples)
+    output_ii = gain_ii.process_block(samples)
+
+    assert not np.allclose(output_i, output_ii, atol=1e-4)
+
+
+@pytest.mark.parametrize(
+    "settings, message",
+    [
+        (AdvancedAmpSettings(channel="iii"), "Channel"),
+        (AdvancedAmpSettings(gain=10.1), "Gain"),
+        (AdvancedAmpSettings(gain=float("nan")), "Gain must be finite"),
+    ],
+)
+def test_version2_rejects_invalid_controls(settings: AdvancedAmpSettings, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        Version2Amp(48_000, settings)

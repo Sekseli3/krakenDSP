@@ -1,6 +1,5 @@
 """Live Python prototype for the Kraken-inspired guitar amp."""
 
-from .amp import AmpSettings, Version1Amp
+from .amp import AdvancedAmpSettings, AmpSettings, Version1Amp, Version2Amp
 
-__all__ = ["AmpSettings", "Version1Amp"]
-
+__all__ = ["AdvancedAmpSettings", "AmpSettings", "Version1Amp", "Version2Amp"]

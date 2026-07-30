@@ -696,22 +696,22 @@ as well as a useful foundation for offline testing. It uses `sounddevice`
 audio interface, process it, and return the processed mono signal on the
 interface outputs.
 
-The current live chain is intentionally small:
+The live implementation now covers Version 2 of the preamp:
 
 ```text
 Focusrite guitar input
   → 30 Hz high-pass
-  → 480 Hz high-shelf pre-emphasis
-  → asymmetric tanh distortion
-  → 7 kHz low-pass + DC blocker
+  → Stage 1: 480 Hz pre-emphasis + asymmetric tanh + DC blocker
+  → Stage 2: bass tightening + 170 Hz pre-emphasis + asymmetric tanh + DC blocker
+  → Stage 3: high-pass + asymmetric tanh + low-pass + DC blocker
   → cabinet FIR
   → output safety limiter
   → Focusrite output
 ```
 
-This is Version 1 only: it deliberately does not yet include the three-stage
-preamp, tone controls, sag, or oversampling. Those come after proving that the
-live input and output routing is stable.
+Use `--channel i` for the looser, darker British-style voice, or `--channel ii`
+for the tighter modern high-gain voice. Gain II is the default. Tone controls,
+power amp/sag, and oversampling are the next milestones.
 
 #### Run the live Python prototype
 
@@ -763,12 +763,16 @@ kraken-dsp run \
   --blocksize 128
 ```
 
-The live output starts conservatively at -12 dB. The two primary controls for
-the first tone pass are digital preamp gain and waveshaper drive:
+The live output starts conservatively at -18 dB. The primary controls are the
+0--10 preamp gain, Gain I/II voice, and digital input trim:
 
 ```bash
-kraken-dsp run --input-gain-db 20 --drive 3.0 --output-gain-db -12
+kraken-dsp run --channel ii --gain 7.5 --input-gain-db 24 --output-gain-db -18
 ```
+
+If the input is still too clean, raise `--gain` first, then increase
+`--input-gain-db` by 3 dB at a time. Lower `--output-gain-db` before raising
+the analogue Focusrite output volume.
 
 The app includes a short, neutral speaker-like FIR so it works without a binary
 asset. For a much more realistic result, supply a cabinet WAV IR; stereo IRs
