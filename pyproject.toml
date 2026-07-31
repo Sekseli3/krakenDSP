@@ -12,10 +12,12 @@ dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
     "sounddevice>=0.4.6",
+    "matplotlib>=3.7",
 ]
 
 [project.scripts]
 kraken-dsp = "kraken_dsp.cli:main"
+kraken-dsp-walkthrough = "kraken_dsp.walkthrough:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -23,4 +25,3 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-

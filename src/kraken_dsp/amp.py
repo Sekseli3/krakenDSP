@@ -19,6 +19,16 @@ from scipy.io import wavfile
 
 DEFAULT_CABINET_TAPS: Final[int] = 257
 MAX_CABINET_IR_SAMPLES: Final[int] = 4_096
+AMP_STAGE_TAP_NAMES: Final[tuple[str, ...]] = (
+    "Input",
+    "Input conditioning",
+    "Preamp stage 1",
+    "Preamp stage 2",
+    "Preamp stage 3",
+    "Tone stack",
+    "Power amp",
+    "Cabinet + output",
+)
 
 
 @dataclass(frozen=True)
@@ -627,44 +637,86 @@ class Version2Amp:
     def process_block(self, input_samples: np.ndarray) -> np.ndarray:
         """Process one mono block through all three preamp stages."""
 
+        output, _ = self._process_block(input_samples, capture_taps=False)
+        return output
+
+    def process_block_with_taps(self, input_samples: np.ndarray) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+        """Process a block and return copies after each audible amp stage.
+
+        This offline inspection API is intentionally separate from
+        :meth:`process_block`: copying every intermediate block is useful for
+        teaching and rendering, but inappropriate in the real-time callback.
+        """
+
+        output, taps = self._process_block(input_samples, capture_taps=True)
+        assert taps is not None
+        return output, taps
+
+    def _process_block(
+        self,
+        input_samples: np.ndarray,
+        *,
+        capture_taps: bool,
+    ) -> tuple[np.ndarray, dict[str, np.ndarray] | None]:
+        """Run the engine, optionally retaining snapshots for offline use."""
+
         x = np.asarray(input_samples, dtype=np.float64)
         if x.ndim != 1:
             raise ValueError("Version2Amp expects a one-dimensional mono block")
         if len(x) == 0:
-            return np.empty(0, dtype=np.float32)
+            empty_output = np.empty(0, dtype=np.float32)
+            if capture_taps:
+                return empty_output, {name: empty_output.copy() for name in AMP_STAGE_TAP_NAMES}
+            return empty_output, None
+
+        taps: dict[str, np.ndarray] | None = {} if capture_taps else None
+
+        def capture(name: str, samples: np.ndarray) -> None:
+            if taps is not None:
+                taps[name] = samples.astype(np.float32, copy=True)
+
+        capture("Input", x)
 
         x = self._input_highpass.process(x)
         x *= self._input_gain
+        capture("Input conditioning", x)
 
         x = self._stage1_shelf.process(x)
         x *= self._stage1_gain
         x = asymmetric_tanh(x, drive=self._stage1_drive, bias=0.02, positive_shape=1.0, negative_shape=0.8)
         x = self._stage1_dc.process(x)
+        capture("Preamp stage 1", x)
 
         x = self._stage2_highpass.process(x)
         x = self._stage2_shelf.process(x)
         x *= self._stage2_gain
         x = asymmetric_tanh(x, drive=self._stage2_drive, bias=0.04, positive_shape=1.2, negative_shape=0.75)
         x = self._stage2_dc.process(x)
+        capture("Preamp stage 2", x)
 
         x = self._stage3_highpass.process(x)
         x *= self._stage3_gain
         x = asymmetric_tanh(x, drive=self._stage3_drive, bias=0.03, positive_shape=1.4, negative_shape=0.9)
         x = self._stage3_lowpass.process(x)
         x = self._stage3_dc.process(x)
+        capture("Preamp stage 3", x)
 
         x = self._bass.process(x)
         x = self._middle.process(x)
         x = self._treble.process(x)
+        capture("Tone stack", x)
 
         x *= self._master_gain
         sag_gain = 1.0 / (1.0 + self._sag_amount * self._sag_envelope.process(x))
         x = np.tanh(x * sag_gain * self._power_drive)
         x = self._presence.process(x)
         x = self._bass_focus.process(x)
+        capture("Power amp", x)
 
         if not self.settings.cabinet_bypass:
             x = self._cabinet.process(x)
         x *= self._output_gain
         np.clip(x, -self.settings.limiter_ceiling, self.settings.limiter_ceiling, out=x)
-        return x.astype(np.float32)
+        output = x.astype(np.float32)
+        capture("Cabinet + output", output)
+        return output, taps

@@ -823,6 +823,42 @@ resampling:
 kraken-dsp run --cabinet-ir /path/to/cabinet_ir.wav
 ```
 
+#### Hear and see every DSP stage
+
+The learning renderer creates an **MP4 (not GIF, because GIF has no audio)**.
+It highlights each block in the same signal chain as the audio moves through
+it, shows a waveform and spectrum, and plays the audio after each stage in
+order. The fallback input is a synthetic plucked-guitar DI so it can be used
+immediately:
+
+```bash
+uv sync
+uv run kraken-dsp-walkthrough
+```
+
+The resulting video is written to
+`artifacts/kraken_dsp_stage_walkthrough.mp4`. Each stage is loudness-normalised
+for comparison, so the progression is easy to hear rather than being dominated
+by the high-gain stages. On Ubuntu it needs the system video encoder once:
+
+```bash
+sudo apt install ffmpeg
+```
+
+For the most useful lesson, record a clean DI guitar WAV through the Focusrite
+(with no direct monitoring/effects), then render that exact performance:
+
+```bash
+uv run kraken-dsp-walkthrough \
+  --input /path/to/clean_guitar_di.wav \
+  --output artifacts/my_guitar_through_the_amp.mp4
+```
+
+The renderer accepts the familiar amp controls too, for example
+`--gain 8 --bass 4 --middle 6 --treble 5 --master 6 --presence 5`. Its stage
+snapshots come directly from `Version2Amp.process_block_with_taps()`, not a
+separate simplified demo chain.
+
 If macOS lists no inputs, grant the terminal/Python host **Microphone** access
 in System Settings → Privacy & Security, reconnect the Focusrite, and verify
 its sample rate in Audio MIDI Setup. Keep the input and output on the same

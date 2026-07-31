@@ -5,6 +5,7 @@ import pytest
 from scipy.io import wavfile
 
 from kraken_dsp.amp import (
+    AMP_STAGE_TAP_NAMES,
     MAX_CABINET_IR_SAMPLES,
     AdvancedAmpSettings,
     AmpSettings,
@@ -114,6 +115,20 @@ def test_tone_and_power_controls_change_the_version2_output() -> None:
     shaped_output = shaped.process_block(samples)
 
     assert not np.allclose(neutral_output, shaped_output, atol=1e-4)
+
+
+def test_version2_stage_taps_follow_the_live_processing_path() -> None:
+    samples = 0.04 * np.sin(2 * np.pi * 110 * np.arange(1_024) / 48_000)
+    inspected_amp = Version2Amp(48_000)
+    live_amp = Version2Amp(48_000)
+
+    inspected_output, taps = inspected_amp.process_block_with_taps(samples)
+    live_output = live_amp.process_block(samples)
+
+    assert tuple(taps) == AMP_STAGE_TAP_NAMES
+    assert all(tap.shape == samples.shape for tap in taps.values())
+    assert np.allclose(inspected_output, live_output)
+    assert np.allclose(taps["Cabinet + output"], inspected_output)
 
 
 def test_master_control_reduces_output_level() -> None:
