@@ -140,6 +140,12 @@ def test_walkthrough_accepts_the_same_bright_presence_and_cabinet_options_as_liv
     assert args.cabinet_bypass is True
 
 
+def test_walkthrough_uses_the_full_input_by_default() -> None:
+    args = _parse_args([])
+
+    assert args.seconds_per_stage is None
+
+
 def test_walkthrough_final_stage_matches_live_processing_at_the_same_blocksize() -> None:
     samples = 0.04 * np.sin(2 * np.pi * 110 * np.arange(1_024) / 48_000)
     settings = AdvancedAmpSettings(sag=3.0)

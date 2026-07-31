@@ -65,7 +65,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Destination MP4 path (default: artifacts/kraken_dsp_stage_walkthrough.mp4).",
     )
     parser.add_argument("--sample-rate", type=int, choices=(44_100, 48_000), default=48_000)
-    parser.add_argument("--seconds-per-stage", type=float, default=1.7)
+    parser.add_argument(
+        "--seconds-per-stage",
+        type=float,
+        help="Optional excerpt length for every stage. By default, each stage plays the whole input WAV.",
+    )
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument(
         "--blocksize",
@@ -314,7 +318,7 @@ def main(argv: list[str] | None = None) -> None:
     """Entry point for ``kraken-dsp-walkthrough``."""
 
     args = _parse_args(argv)
-    if args.seconds_per_stage <= 0:
+    if args.seconds_per_stage is not None and args.seconds_per_stage <= 0:
         raise SystemExit("--seconds-per-stage must be positive")
     if args.fps <= 0:
         raise SystemExit("--fps must be positive")
@@ -329,7 +333,9 @@ def main(argv: list[str] | None = None) -> None:
             source_rate, source = _decode_wav(args.input)
             source = _resample(source, source_rate, args.sample_rate)
             source_note = f"clean DI: {args.input.name}"
-        frames_per_stage = max(1, round(args.seconds_per_stage * args.fps))
+        source_seconds = len(source) / args.sample_rate
+        requested_seconds = args.seconds_per_stage if args.seconds_per_stage is not None else source_seconds
+        frames_per_stage = max(1, round(requested_seconds * args.fps))
         segment_length = round(args.sample_rate * frames_per_stage / args.fps)
         if len(source) < segment_length:
             raise ValueError(
@@ -362,7 +368,7 @@ def main(argv: list[str] | None = None) -> None:
             args.output,
             stage_segments,
             args.sample_rate,
-            args.seconds_per_stage,
+            frames_per_stage / args.fps,
             args.fps,
             source_note,
         )
