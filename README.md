@@ -837,9 +837,12 @@ uv run kraken-dsp-walkthrough
 ```
 
 The resulting video is written to
-`artifacts/kraken_dsp_stage_walkthrough.mp4`. Each stage is loudness-normalised
-for comparison, so the progression is easy to hear rather than being dominated
-by the high-gain stages. On Ubuntu it needs the system video encoder once:
+`artifacts/kraken_dsp_stage_walkthrough.mp4`. Its stage audio retains the real
+DSP levels: it is deliberately **not** normalised or gain-staged for the video.
+The final `Cabinet + output` segment is therefore the same amp output as live
+mode for the same DI, settings, IR, sample rate, and blocksize. Turn your
+player/interface volume up if the early DI stages are quiet. On Ubuntu it
+needs the system video encoder once:
 
 ```bash
 sudo apt install ffmpeg

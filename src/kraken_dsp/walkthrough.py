@@ -67,6 +67,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--sample-rate", type=int, choices=(44_100, 48_000), default=48_000)
     parser.add_argument("--seconds-per-stage", type=float, default=1.7)
     parser.add_argument("--fps", type=int, default=24)
+    parser.add_argument(
+        "--blocksize",
+        type=int,
+        default=128,
+        help="DSP block size. Match the live command's blocksize for an exact sag response (default: 128).",
+    )
     parser.add_argument("--channel", choices=("i", "ii"), default="ii")
     parser.add_argument("--gain", type=float, default=7.5)
     parser.add_argument("--input-gain-db", type=float, default=24.0)
@@ -130,43 +136,32 @@ def _synthetic_guitar(sample_rate: int) -> np.ndarray:
     return output
 
 
-def _repeat_to_length(samples: np.ndarray, length: int) -> np.ndarray:
-    if len(samples) >= length:
-        return samples
-    return np.tile(samples, int(np.ceil(length / len(samples))))[:length]
-
-
 def _process_stage_taps(
     samples: np.ndarray,
     sample_rate: int,
     settings: AdvancedAmpSettings,
     cabinet_ir: np.ndarray | None = None,
+    *,
+    blocksize: int = 128,
 ) -> dict[str, np.ndarray]:
     amp = Version2Amp(sample_rate, settings=settings, cabinet_ir=cabinet_ir)
     collected = {name: [] for name in AMP_STAGE_TAP_NAMES}
-    for start in range(0, len(samples), 256):
-        _, taps = amp.process_block_with_taps(samples[start : start + 256])
+    for start in range(0, len(samples), blocksize):
+        _, taps = amp.process_block_with_taps(samples[start : start + blocksize])
         for name in AMP_STAGE_TAP_NAMES:
             collected[name].append(taps[name])
     return {name: np.concatenate(blocks) for name, blocks in collected.items()}
 
 
-def _fade_edges(samples: np.ndarray, sample_rate: int) -> np.ndarray:
-    output = samples.copy()
-    count = min(int(0.018 * sample_rate), len(output) // 2)
-    if count:
-        ramp = np.linspace(0.0, 1.0, count, endpoint=False)
-        output[:count] *= ramp
-        output[-count:] *= ramp[::-1]
-    return output
+def _stage_audio_segment(samples: np.ndarray, length: int) -> np.ndarray:
+    """Return an unmodified stage excerpt for faithful live-signal playback.
 
+    In particular, do not peak-normalise a stage: changing its playback level
+    makes pickup noise and gain changes misleading. The final segment is the
+    same floating-point output as the live amp for the same input/settings.
+    """
 
-def _prepare_listening_segment(samples: np.ndarray, length: int, sample_rate: int) -> np.ndarray:
-    segment = _repeat_to_length(samples, length)[:length].astype(np.float64, copy=True)
-    peak = float(np.max(np.abs(segment)))
-    if peak > 1e-8:
-        segment *= 0.78 / peak
-    return _fade_edges(np.clip(segment, -0.95, 0.95), sample_rate).astype(np.float32)
+    return samples[:length].astype(np.float32, copy=True)
 
 
 def _level_db(samples: np.ndarray) -> float:
@@ -323,6 +318,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit("--seconds-per-stage must be positive")
     if args.fps <= 0:
         raise SystemExit("--fps must be positive")
+    if args.blocksize <= 0:
+        raise SystemExit("--blocksize must be positive")
 
     try:
         if args.input is None:
@@ -332,7 +329,14 @@ def main(argv: list[str] | None = None) -> None:
             source_rate, source = _decode_wav(args.input)
             source = _resample(source, source_rate, args.sample_rate)
             source_note = f"clean DI: {args.input.name}"
-        source = _repeat_to_length(source, int(args.seconds_per_stage * args.sample_rate))
+        frames_per_stage = max(1, round(args.seconds_per_stage * args.fps))
+        segment_length = round(args.sample_rate * frames_per_stage / args.fps)
+        if len(source) < segment_length:
+            raise ValueError(
+                f"Input audio is only {len(source) / args.sample_rate:.2f} seconds; "
+                f"record at least {segment_length / args.sample_rate:.2f} seconds or lower --seconds-per-stage"
+            )
+        source = source[:segment_length]
         cabinet_ir = load_cabinet_ir(args.cabinet_ir, args.sample_rate) if args.cabinet_ir else None
         settings = AdvancedAmpSettings(
             channel=args.channel,
@@ -349,10 +353,9 @@ def main(argv: list[str] | None = None) -> None:
             output_gain_db=args.output_gain_db,
             cabinet_bypass=args.cabinet_bypass,
         )
-        all_taps = _process_stage_taps(source, args.sample_rate, settings, cabinet_ir)
-        segment_length = int(args.seconds_per_stage * args.sample_rate)
+        all_taps = _process_stage_taps(source, args.sample_rate, settings, cabinet_ir, blocksize=args.blocksize)
         stage_segments = {
-            name: _prepare_listening_segment(all_taps[name], segment_length, args.sample_rate)
+            name: _stage_audio_segment(all_taps[name], segment_length)
             for name in AMP_STAGE_TAP_NAMES
         }
         _render_video(
