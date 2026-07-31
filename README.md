@@ -854,10 +854,18 @@ uv run kraken-dsp-walkthrough \
   --output artifacts/my_guitar_through_the_amp.mp4
 ```
 
-The renderer accepts the familiar amp controls too, for example
-`--gain 8 --bass 4 --middle 6 --treble 5 --master 6 --presence 5`. Its stage
-snapshots come directly from `Version2Amp.process_block_with_taps()`, not a
-separate simplified demo chain.
+The renderer accepts the same current amp controls as live mode, including
+`--presence-bright`, `--cabinet-ir`, and `--cabinet-bypass`. For example:
+
+```bash
+uv run kraken-dsp-walkthrough \
+  --input /path/to/clean_guitar_di.wav \
+  --gain 8 --bass 4 --middle 6 --treble 5 --master 6 --presence 5 \
+  --presence-bright --cabinet-ir /path/to/cabinet_ir.wav
+```
+
+Its stage snapshots come directly from `Version2Amp.process_block_with_taps()`,
+not a separate simplified demo chain.
 
 If macOS lists no inputs, grant the terminal/Python host **Microphone** access
 in System Settings → Privacy & Security, reconnect the Focusrite, and verify

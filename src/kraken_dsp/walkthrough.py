@@ -14,7 +14,7 @@ import numpy as np
 from scipy import signal
 from scipy.io import wavfile
 
-from .amp import AMP_STAGE_TAP_NAMES, AdvancedAmpSettings, Version2Amp
+from .amp import AMP_STAGE_TAP_NAMES, AdvancedAmpSettings, Version2Amp, load_cabinet_ir
 
 
 @dataclass(frozen=True)
@@ -75,9 +75,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--treble", type=float, default=5.0)
     parser.add_argument("--master", type=float, default=6.0)
     parser.add_argument("--presence", type=float, default=5.0)
+    parser.add_argument("--presence-bright", action="store_true", help="Enable the brighter presence voicing.")
     parser.add_argument("--sag", type=float, default=2.5)
     parser.add_argument("--bass-focus", choices=("tight", "loose"), default="tight")
     parser.add_argument("--output-gain-db", type=float, default=-6.0)
+    parser.add_argument("--cabinet-ir", type=Path, help="Path to a mono or stereo WAV cabinet impulse response.")
+    parser.add_argument("--cabinet-bypass", action="store_true", help="Bypass the cabinet FIR (normally only useful for debugging).")
     return parser.parse_args(argv)
 
 
@@ -133,8 +136,13 @@ def _repeat_to_length(samples: np.ndarray, length: int) -> np.ndarray:
     return np.tile(samples, int(np.ceil(length / len(samples))))[:length]
 
 
-def _process_stage_taps(samples: np.ndarray, sample_rate: int, settings: AdvancedAmpSettings) -> dict[str, np.ndarray]:
-    amp = Version2Amp(sample_rate, settings=settings)
+def _process_stage_taps(
+    samples: np.ndarray,
+    sample_rate: int,
+    settings: AdvancedAmpSettings,
+    cabinet_ir: np.ndarray | None = None,
+) -> dict[str, np.ndarray]:
+    amp = Version2Amp(sample_rate, settings=settings, cabinet_ir=cabinet_ir)
     collected = {name: [] for name in AMP_STAGE_TAP_NAMES}
     for start in range(0, len(samples), 256):
         _, taps = amp.process_block_with_taps(samples[start : start + 256])
@@ -325,6 +333,7 @@ def main(argv: list[str] | None = None) -> None:
             source = _resample(source, source_rate, args.sample_rate)
             source_note = f"clean DI: {args.input.name}"
         source = _repeat_to_length(source, int(args.seconds_per_stage * args.sample_rate))
+        cabinet_ir = load_cabinet_ir(args.cabinet_ir, args.sample_rate) if args.cabinet_ir else None
         settings = AdvancedAmpSettings(
             channel=args.channel,
             gain=args.gain,
@@ -334,11 +343,13 @@ def main(argv: list[str] | None = None) -> None:
             treble=args.treble,
             master=args.master,
             presence=args.presence,
+            presence_bright=args.presence_bright,
             sag=args.sag,
             bass_focus=args.bass_focus,
             output_gain_db=args.output_gain_db,
+            cabinet_bypass=args.cabinet_bypass,
         )
-        all_taps = _process_stage_taps(source, args.sample_rate, settings)
+        all_taps = _process_stage_taps(source, args.sample_rate, settings, cabinet_ir)
         segment_length = int(args.seconds_per_stage * args.sample_rate)
         stage_segments = {
             name: _prepare_listening_segment(all_taps[name], segment_length, args.sample_rate)

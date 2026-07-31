@@ -14,6 +14,7 @@ from kraken_dsp.amp import (
     default_cabinet_ir,
     load_cabinet_ir,
 )
+from kraken_dsp.walkthrough import _parse_args
 
 
 @pytest.mark.parametrize("sample_rate", [44_100, 48_000])
@@ -129,6 +130,14 @@ def test_version2_stage_taps_follow_the_live_processing_path() -> None:
     assert all(tap.shape == samples.shape for tap in taps.values())
     assert np.allclose(inspected_output, live_output)
     assert np.allclose(taps["Cabinet + output"], inspected_output)
+
+
+def test_walkthrough_accepts_the_same_bright_presence_and_cabinet_options_as_live_mode() -> None:
+    args = _parse_args(["--presence-bright", "--cabinet-ir", "example.wav", "--cabinet-bypass"])
+
+    assert args.presence_bright is True
+    assert args.cabinet_ir.name == "example.wav"
+    assert args.cabinet_bypass is True
 
 
 def test_master_control_reduces_output_level() -> None:
