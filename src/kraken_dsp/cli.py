@@ -56,13 +56,16 @@ def _add_stream_options(parser: argparse.ArgumentParser, *, include_output: bool
 
 
 def _add_amp_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--channel", choices=("i", "ii"), default="ii", help="Preamp voice: i is looser; ii is tighter high gain (default: ii).")
-    parser.add_argument("--gain", type=float, default=6.5, help="Preamp gain from 0 to 10 (default: 6.5).")
-    parser.add_argument("--input-gain-db", type=float, default=24.0, help="Digital input trim in dB (default: 24).")
+    parser.add_argument("--channel", choices=("clean", "i", "ii"), default="ii", help="MKII mode: clean, Gain I, or tight high-gain Gain II (default: ii).")
+    parser.add_argument("--gain", type=float, default=6.5, help="Shared Clean/Gain-I gain, and Gain-II preamp gain, from 0 to 10 (default: 6.5).")
+    parser.add_argument("--input-gain-db", type=float, default=0.0, help="Digital input trim in dB (default: 0).")
+    parser.add_argument("--gain-i-balance-db", type=float, default=0.0, help="Clean level relative to Gain I, in dB (default: 0).")
     parser.add_argument("--bass", type=float, default=5.0, help="Bass EQ from 0 to 10 (default: 5).")
     parser.add_argument("--middle", type=float, default=5.0, help="Middle EQ from 0 to 10 (default: 5).")
     parser.add_argument("--treble", type=float, default=5.0, help="Treble EQ from 0 to 10 (default: 5).")
-    parser.add_argument("--master", type=float, default=6.0, help="Master volume and power-amp drive from 0 to 10 (default: 6).")
+    parser.add_argument("--master-i", type=float, default=6.0, help="Clean/Gain-I master volume and power drive from 0 to 10 (default: 6).")
+    parser.add_argument("--master-ii", type=float, default=6.0, help="Gain-II master volume and power drive from 0 to 10 (default: 6).")
+    parser.add_argument("--master", type=float, help="Compatibility override: use this master for every mode instead of Master I/II.")
     parser.add_argument("--presence", type=float, default=4.0, help="Power-amp presence from 0 to 10 (default: 4).")
     parser.add_argument("--presence-bright", action="store_true", help="Enable the brighter presence voicing.")
     parser.add_argument("--bass-focus", choices=("loose", "tight"), default="tight", help="Power-section bass focus (default: tight).")
@@ -130,10 +133,13 @@ def _run_amp(args: argparse.Namespace) -> None:
         channel=args.channel,
         gain=args.gain,
         input_gain_db=args.input_gain_db,
+        gain_i_balance_db=args.gain_i_balance_db,
         bass=args.bass,
         middle=args.middle,
         treble=args.treble,
         master=args.master,
+        master_i=args.master_i,
+        master_ii=args.master_ii,
         presence=args.presence,
         presence_bright=args.presence_bright,
         bass_focus=args.bass_focus,

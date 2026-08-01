@@ -104,6 +104,32 @@ def test_gain_i_and_gain_ii_have_distinct_voicings() -> None:
     assert not np.allclose(output_i, output_ii, atol=1e-4)
 
 
+def test_clean_mode_is_distinct_from_gain_ii_and_uses_master_i() -> None:
+    samples = 0.05 * np.sin(2 * np.pi * 220 * np.arange(4_096) / 48_000)
+    clean = Version2Amp(48_000, AdvancedAmpSettings(channel="clean", gain=2, master_i=6, master_ii=1, presence=0, sag=0))
+    clean_with_other_master = Version2Amp(
+        48_000, AdvancedAmpSettings(channel="clean", gain=2, master_i=6, master_ii=9, presence=0, sag=0)
+    )
+    gain_ii = Version2Amp(48_000, AdvancedAmpSettings(channel="ii", gain=2, master_ii=6, presence=0, sag=0))
+
+    clean_output = clean.process_block(samples)
+    clean_other_master_output = clean_with_other_master.process_block(samples)
+    gain_ii_output = gain_ii.process_block(samples)
+
+    assert np.allclose(clean_output, clean_other_master_output)
+    assert not np.allclose(clean_output, gain_ii_output, atol=1e-4)
+
+
+def test_clean_gain_i_balance_changes_only_the_clean_mode_level() -> None:
+    samples = 0.05 * np.sin(2 * np.pi * 220 * np.arange(4_096) / 48_000)
+    quiet_clean = Version2Amp(48_000, AdvancedAmpSettings(channel="clean", gain_i_balance_db=-6, presence=0, sag=0))
+    loud_clean = Version2Amp(48_000, AdvancedAmpSettings(channel="clean", gain_i_balance_db=6, presence=0, sag=0))
+
+    assert np.sqrt(np.mean(np.square(loud_clean.process_block(samples)))) > np.sqrt(
+        np.mean(np.square(quiet_clean.process_block(samples)))
+    ) * 2
+
+
 def test_tone_and_power_controls_change_the_version2_output() -> None:
     samples = 0.04 * np.sin(2 * np.pi * 110 * np.arange(4_096) / 48_000)
     neutral = Version2Amp(48_000, AdvancedAmpSettings(bass=5, middle=5, treble=5, master=6, presence=0, sag=0))
@@ -174,6 +200,7 @@ def test_master_control_reduces_output_level() -> None:
     "settings, message",
     [
         (AdvancedAmpSettings(channel="iii"), "Channel"),
+        (AdvancedAmpSettings(gain_i_balance_db=19), "Gain I balance"),
         (AdvancedAmpSettings(gain=10.1), "Gain"),
         (AdvancedAmpSettings(gain=float("nan")), "Gain must be finite"),
         (AdvancedAmpSettings(bass=10.1), "Bass"),

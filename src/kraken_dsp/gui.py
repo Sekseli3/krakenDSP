@@ -33,7 +33,7 @@ def launch_gui(args: Any) -> None:
         def __init__(self) -> None:
             self.root = tk.Tk()
             self.root.title("Kraken DSP")
-            self.root.minsize(760, 560)
+            self.root.minsize(790, 610)
             self.root.protocol("WM_DELETE_WINDOW", self.close)
             self.live_amp: LiveAmp | None = None
             self.stream: Any | None = None
@@ -42,10 +42,12 @@ def launch_gui(args: Any) -> None:
             self.channel = tk.StringVar(value=args.channel)
             self.gain = tk.DoubleVar(value=args.gain)
             self.input_gain_db = tk.DoubleVar(value=args.input_gain_db)
+            self.gain_i_balance_db = tk.DoubleVar(value=args.gain_i_balance_db)
             self.bass = tk.DoubleVar(value=args.bass)
             self.middle = tk.DoubleVar(value=args.middle)
             self.treble = tk.DoubleVar(value=args.treble)
-            self.master = tk.DoubleVar(value=args.master)
+            self.master_i = tk.DoubleVar(value=args.master_i)
+            self.master_ii = tk.DoubleVar(value=args.master_ii)
             self.presence = tk.DoubleVar(value=args.presence)
             self.presence_bright = tk.BooleanVar(value=args.presence_bright)
             self.bass_focus = tk.StringVar(value=args.bass_focus)
@@ -85,32 +87,37 @@ def launch_gui(args: Any) -> None:
             output.grid(row=2, column=1, padx=(6, 12), pady=6, sticky="nsew")
 
             ttk.Label(preamp, text="Channel").grid(row=0, column=0, sticky="w")
-            ttk.Radiobutton(preamp, text="Gain I (looser)", variable=self.channel, value="i", command=self.schedule_apply).grid(
+            ttk.Radiobutton(preamp, text="Clean", variable=self.channel, value="clean", command=self.schedule_apply).grid(
                 row=0, column=1, sticky="w"
             )
-            ttk.Radiobutton(preamp, text="Gain II (tight)", variable=self.channel, value="ii", command=self.schedule_apply).grid(
+            ttk.Radiobutton(preamp, text="Gain I (looser)", variable=self.channel, value="i", command=self.schedule_apply).grid(
                 row=0, column=2, sticky="w"
             )
+            ttk.Radiobutton(preamp, text="Gain II (tight)", variable=self.channel, value="ii", command=self.schedule_apply).grid(
+                row=0, column=3, sticky="w"
+            )
             self._slider(preamp, 1, "Gain", self.gain, 0, 10)
-            self._slider(preamp, 2, "Input trim (dB)", self.input_gain_db, 0, 36)
+            self._slider(preamp, 2, "Input trim (dB)", self.input_gain_db, -24, 36)
+            self._slider(preamp, 3, "Clean / Gain I balance (dB)", self.gain_i_balance_db, -18, 18)
 
             self._slider(tone, 0, "Bass", self.bass, 0, 10)
             self._slider(tone, 1, "Middle", self.middle, 0, 10)
             self._slider(tone, 2, "Treble", self.treble, 0, 10)
 
-            self._slider(power, 0, "Master", self.master, 0, 10)
-            self._slider(power, 1, "Presence", self.presence, 0, 10)
+            self._slider(power, 0, "Master I (Clean / Gain I)", self.master_i, 0, 10)
+            self._slider(power, 1, "Master II (Gain II)", self.master_ii, 0, 10)
+            self._slider(power, 2, "Presence", self.presence, 0, 10)
             ttk.Checkbutton(power, text="Bright presence", variable=self.presence_bright, command=self.schedule_apply).grid(
-                row=2, column=0, columnspan=3, sticky="w", pady=(4, 0)
+                row=3, column=0, columnspan=3, sticky="w", pady=(4, 0)
             )
-            ttk.Label(power, text="Bass Focus").grid(row=3, column=0, sticky="w", pady=(8, 0))
+            ttk.Label(power, text="Bass Focus").grid(row=4, column=0, sticky="w", pady=(8, 0))
             ttk.Radiobutton(power, text="Tight", variable=self.bass_focus, value="tight", command=self.schedule_apply).grid(
-                row=3, column=1, sticky="w", pady=(8, 0)
+                row=4, column=1, sticky="w", pady=(8, 0)
             )
             ttk.Radiobutton(power, text="Loose", variable=self.bass_focus, value="loose", command=self.schedule_apply).grid(
-                row=3, column=2, sticky="w", pady=(8, 0)
+                row=4, column=2, sticky="w", pady=(8, 0)
             )
-            self._slider(power, 4, "Sag", self.sag, 0, 10)
+            self._slider(power, 5, "Sag", self.sag, 0, 10)
 
             ttk.Label(output, text="Cabinet IR (optional)").grid(row=0, column=0, sticky="w")
             ir_entry = ttk.Entry(output, textvariable=self.cabinet_ir, width=34)
@@ -160,10 +167,12 @@ def launch_gui(args: Any) -> None:
                 channel=self.channel.get(),
                 gain=self.gain.get(),
                 input_gain_db=self.input_gain_db.get(),
+                gain_i_balance_db=self.gain_i_balance_db.get(),
                 bass=self.bass.get(),
                 middle=self.middle.get(),
                 treble=self.treble.get(),
-                master=self.master.get(),
+                master_i=self.master_i.get(),
+                master_ii=self.master_ii.get(),
                 presence=self.presence.get(),
                 presence_bright=self.presence_bright.get(),
                 bass_focus=self.bass_focus.get(),

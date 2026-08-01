@@ -77,13 +77,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=128,
         help="DSP block size. Match the live command's blocksize for an exact sag response (default: 128).",
     )
-    parser.add_argument("--channel", choices=("i", "ii"), default="ii")
+    parser.add_argument("--channel", choices=("clean", "i", "ii"), default="ii")
     parser.add_argument("--gain", type=float, default=7.5)
-    parser.add_argument("--input-gain-db", type=float, default=24.0)
+    parser.add_argument("--input-gain-db", type=float, default=0.0)
+    parser.add_argument("--gain-i-balance-db", type=float, default=0.0)
     parser.add_argument("--bass", type=float, default=4.0)
     parser.add_argument("--middle", type=float, default=6.0)
     parser.add_argument("--treble", type=float, default=5.0)
-    parser.add_argument("--master", type=float, default=6.0)
+    parser.add_argument("--master-i", type=float, default=6.0)
+    parser.add_argument("--master-ii", type=float, default=6.0)
+    parser.add_argument("--master", type=float, help="Compatibility override for Master I/II.")
     parser.add_argument("--presence", type=float, default=5.0)
     parser.add_argument("--presence-bright", action="store_true", help="Enable the brighter presence voicing.")
     parser.add_argument("--sag", type=float, default=2.5)
@@ -348,10 +351,13 @@ def main(argv: list[str] | None = None) -> None:
             channel=args.channel,
             gain=args.gain,
             input_gain_db=args.input_gain_db,
+            gain_i_balance_db=args.gain_i_balance_db,
             bass=args.bass,
             middle=args.middle,
             treble=args.treble,
             master=args.master,
+            master_i=args.master_i,
+            master_ii=args.master_ii,
             presence=args.presence,
             presence_bright=args.presence_bright,
             sag=args.sag,

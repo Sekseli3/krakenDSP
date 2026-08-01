@@ -713,10 +713,12 @@ Focusrite guitar input
   → Focusrite output
 ```
 
-Use `--channel i` for the looser, darker British-style voice, or `--channel ii`
-for the tighter modern high-gain voice. Gain II is the default. Oversampling,
-parameter smoothing, and a measurement-based circuit model are still future
-quality improvements.
+The target layout is the VX Kraken MKII: `--channel clean` and `--channel i`
+share the Gain I control, while `--channel ii` is the tighter modern high-gain
+voice. Clean/Gain I use `--master-i`; Gain II uses `--master-ii`. The Clean /
+Gain-I balance control is `--gain-i-balance-db`. Gain II is the default.
+Oversampling, parameter smoothing, and a measurement-based circuit model are
+still future quality improvements.
 
 #### Run the live Python prototype
 
@@ -769,9 +771,19 @@ kraken-dsp run \
 ```
 
 The core amp controls all use familiar 0--10 positions: `--gain`, `--bass`,
-`--middle`, `--treble`, `--master`, `--presence`, and `--sag`. Bass Focus is a
-power-section switch: use `tight` for modern palm mutes and `loose` for more
-resonance. The master control changes both level and power-amp saturation.
+`--middle`, `--treble`, `--master-i`, `--master-ii`, `--presence`, and `--sag`.
+Bass Focus is a power-section switch: use `tight` for modern palm mutes and
+`loose` for more resonance. The selected master changes both level and
+power-amp saturation. `--master` remains a compatibility override for older
+commands, but use Master I/II for the MKII layout.
+
+A low-gain clean starting point is:
+
+```bash
+kraken-dsp run \
+  --channel clean --gain 2 --input-gain-db 0 \
+  --master-i 6 --presence 2 --output-gain-db -6
+```
 
 The live output starts at -6 dB. A tight high-gain starting point is:
 
@@ -779,7 +791,7 @@ The live output starts at -6 dB. A tight high-gain starting point is:
 kraken-dsp run \
   --channel ii --gain 7.5 --input-gain-db 24 \
   --bass 4 --middle 6 --treble 5 \
-  --master 6 --presence 5 --bass-focus tight --sag 2.5 \
+  --master-ii 6 --presence 5 --bass-focus tight --sag 2.5 \
   --output-gain-db -6
 ```
 
@@ -790,10 +802,11 @@ presence voicing.
 
 #### Live control GUI
 
-The small desktop GUI provides live sliders for every current amp control,
-channel buttons, Bass Focus, cabinet bypass, cabinet-IR selection, and input/
-output peak meters. Parameter changes crossfade over 25 ms when you are
-playing, rather than abruptly replacing the audio block.
+The small desktop GUI provides Clean, Gain I, and Gain II buttons; shared Gain;
+Clean/Gain-I balance; separate Master I/II controls; Bass Focus; cabinet
+bypass; cabinet-IR selection; and input/output peak meters. Parameter changes
+crossfade over 25 ms when you are playing, rather than abruptly replacing the
+audio block.
 
 ```bash
 kraken-dsp gui --input-device 3 --output-device 3 --input-channel 1 --sample-rate 48000
@@ -892,8 +905,10 @@ Therefore:
 * The cabinet IR will strongly influence the final sound
 * The tone stack, Presence, Bass Focus, and sag are control-level approximations
   rather than measurements of the analogue circuit
-* Hardware-specific features such as dual masters, reverb, the effects loop,
-  and footswitching vary by Kraken model and are not part of this prototype
+* The MkII Clean/Gain I/Gain II modes, Clean/Gain-I balance, and independent
+  Master I/II selection are implemented at control level; physical switching,
+  dual-master assignment modes, reverb, the effects loop, and footswitching
+  are not yet modelled
 
 The objective is initially to produce a convincing high-gain amplifier, not a component-perfect reconstruction.
 

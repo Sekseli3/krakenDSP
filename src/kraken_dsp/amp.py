@@ -57,20 +57,24 @@ class AmpSettings:
 
 @dataclass(frozen=True)
 class AdvancedAmpSettings:
-    """Controls for the Version 2 three-stage high-gain preamp.
+    """Controls for the Version 2 Kraken MKII-inspired preamp.
 
-    ``gain`` is an amp-style 0--10 control. Gain II is the tight, modern
-    high-gain voice and is the default because it is the most useful starting
-    point for the Kraken-inspired design.
+    ``gain`` is shared by the Clean and Gain I modes, like the MKII. Gain II
+    has its own high-gain voice. ``master_i`` serves Clean/Gain I and
+    ``master_ii`` serves Gain II. ``master`` is retained only as a backwards-
+    compatible global override for existing command lines.
     """
 
     channel: str = "ii"
     gain: float = 6.5
-    input_gain_db: float = 24.0
+    input_gain_db: float = 0.0
+    gain_i_balance_db: float = 0.0
     bass: float = 5.0
     middle: float = 5.0
     treble: float = 5.0
-    master: float = 6.0
+    master: float | None = None
+    master_i: float = 6.0
+    master_ii: float = 6.0
     presence: float = 4.0
     presence_bright: bool = False
     bass_focus: str = "tight"
@@ -449,6 +453,28 @@ class _PreampProfile:
 
 
 _PREAMP_PROFILES: Final[dict[str, _PreampProfile]] = {
+    # MKII Clean mode: mostly linear at lower shared-gain settings and gently
+    # enters breakup near the top of the control. It deliberately avoids the
+    # fixed high-gain starting point of the two gain modes.
+    "clean": _PreampProfile(
+        stage1_shelf_db=1.0,
+        stage2_shelf_db=0.5,
+        stage2_highpass_hz=45.0,
+        stage3_highpass_hz=60.0,
+        post_lowpass_hz=9_000.0,
+        stage1_gain_start=0.9,
+        stage1_gain_span=0.22,
+        stage2_gain_start=0.9,
+        stage2_gain_span=0.12,
+        stage3_gain_start=0.9,
+        stage3_gain_span=0.08,
+        stage1_drive_start=0.9,
+        stage1_drive_span=0.05,
+        stage2_drive_start=0.95,
+        stage2_drive_span=0.05,
+        stage3_drive_start=1.0,
+        stage3_drive_span=0.04,
+    ),
     # Gain I: rounder, darker, and more open through the low mids.
     "i": _PreampProfile(
         stage1_shelf_db=6.0,
@@ -585,9 +611,11 @@ class Version2Amp:
         self._stage1_drive = profile.stage1_drive_start + profile.stage1_drive_span * gain_position
         self._stage2_drive = profile.stage2_drive_start + profile.stage2_drive_span * gain_position
         self._stage3_drive = profile.stage3_drive_start + profile.stage3_drive_span * gain_position
-        self._master_gain = _master_to_linear(self.settings.master)
-        self._power_drive = 1.0 + 1.8 * (self.settings.master / 10.0) ** 1.5
+        self.active_master = self._active_master_setting()
+        self._master_gain = _master_to_linear(self.active_master)
+        self._power_drive = 1.0 + 1.8 * (self.active_master / 10.0) ** 1.5
         self._sag_amount = self.settings.sag * 0.08
+        self._clean_gain_i_balance = db_to_linear(self.settings.gain_i_balance_db) if self.channel == "clean" else 1.0
 
         taps = Version1Amp._validate_cabinet_taps(cabinet_ir) if cabinet_ir is not None else default_cabinet_ir(self.sample_rate)
         self._cabinet = _FIRFilter(taps)
@@ -596,10 +624,12 @@ class Version2Amp:
         numeric_settings = {
             "Gain": self.settings.gain,
             "Input gain": self.settings.input_gain_db,
+            "Gain I balance": self.settings.gain_i_balance_db,
             "Bass": self.settings.bass,
             "Middle": self.settings.middle,
             "Treble": self.settings.treble,
-            "Master": self.settings.master,
+            "Master I": self.settings.master_i,
+            "Master II": self.settings.master_ii,
             "Presence": self.settings.presence,
             "Sag": self.settings.sag,
             "Output gain": self.settings.output_gain_db,
@@ -609,20 +639,27 @@ class Version2Amp:
         for name, value in numeric_settings.items():
             if not isfinite(value):
                 raise ValueError(f"{name} must be finite")
+        if self.settings.master is not None and not isfinite(self.settings.master):
+            raise ValueError("Master must be finite")
         if self.settings.channel.casefold() not in _PREAMP_PROFILES:
-            raise ValueError("Channel must be 'i' or 'ii'")
+            raise ValueError("Channel must be 'clean', 'i', or 'ii'")
         if not 0.0 <= self.settings.gain <= 10.0:
             raise ValueError("Gain must be between 0 and 10")
         for name, value in (
             ("Bass", self.settings.bass),
             ("Middle", self.settings.middle),
             ("Treble", self.settings.treble),
-            ("Master", self.settings.master),
+            ("Master I", self.settings.master_i),
+            ("Master II", self.settings.master_ii),
             ("Presence", self.settings.presence),
             ("Sag", self.settings.sag),
         ):
             if not 0.0 <= value <= 10.0:
                 raise ValueError(f"{name} must be between 0 and 10")
+        if self.settings.master is not None and not 0.0 <= self.settings.master <= 10.0:
+            raise ValueError("Master must be between 0 and 10")
+        if not -18.0 <= self.settings.gain_i_balance_db <= 18.0:
+            raise ValueError("Gain I balance must be between -18 dB and +18 dB")
         if self.settings.bass_focus not in {"loose", "tight"}:
             raise ValueError("Bass Focus must be 'loose' or 'tight'")
         if not -36.0 <= self.settings.input_gain_db <= 48.0:
@@ -633,6 +670,13 @@ class Version2Amp:
             raise ValueError("Cabinet gain must be between -24 dB and +24 dB")
         if not 0.0 < self.settings.limiter_ceiling <= 1.0:
             raise ValueError("Limiter ceiling must be in the range (0, 1]")
+
+    def _active_master_setting(self) -> float:
+        """Select the MKII master associated with the active mode."""
+
+        if self.settings.master is not None:
+            return self.settings.master
+        return self.settings.master_i if self.channel in {"clean", "i"} else self.settings.master_ii
 
     def process_block(self, input_samples: np.ndarray) -> np.ndarray:
         """Process one mono block through all three preamp stages."""
@@ -699,6 +743,8 @@ class Version2Amp:
         x = asymmetric_tanh(x, drive=self._stage3_drive, bias=0.03, positive_shape=1.4, negative_shape=0.9)
         x = self._stage3_lowpass.process(x)
         x = self._stage3_dc.process(x)
+        if self.channel == "clean":
+            x *= self._clean_gain_i_balance
         capture("Preamp stage 3", x)
 
         x = self._bass.process(x)
