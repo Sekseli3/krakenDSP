@@ -782,7 +782,7 @@ A low-gain clean starting point is:
 ```bash
 kraken-dsp run \
   --channel clean --gain 2 --input-gain-db 0 \
-  --master-i 6 --presence 2 --output-gain-db -6
+  --master-i 6 --presence 2 --output-gain-db 0
 ```
 
 The live output starts at -6 dB. A tight high-gain starting point is:
@@ -792,13 +792,14 @@ kraken-dsp run \
   --channel ii --gain 7.5 --input-gain-db 24 \
   --bass 4 --middle 6 --treble 5 \
   --master-ii 6 --presence 5 --bass-focus tight --sag 2.5 \
-  --output-gain-db -6
+  --output-gain-db 0
 ```
 
 If the input is still too clean, raise `--gain` first, then increase
-`--input-gain-db` by 3 dB at a time. Lower `--output-gain-db` before raising
-the analogue Focusrite output volume. `--presence-bright` enables the brighter
-presence voicing.
+`--input-gain-db` by 3 dB at a time. Output trim defaults to 0 dB so the final
+amp output remains comparable in level to the preceding visualised stages; use
+the Focusrite or system volume for listening level. `--presence-bright` enables
+the brighter presence voicing.
 
 #### Live control GUI
 

@@ -79,7 +79,7 @@ class AdvancedAmpSettings:
     presence_bright: bool = False
     bass_focus: str = "tight"
     sag: float = 2.5
-    output_gain_db: float = -6.0
+    output_gain_db: float = 0.0
     cabinet_gain_db: float = 0.0
     cabinet_bypass: bool = False
     limiter_ceiling: float = 0.944  # -0.5 dBFS

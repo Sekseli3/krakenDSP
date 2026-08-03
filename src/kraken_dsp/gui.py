@@ -127,7 +127,7 @@ def launch_gui(args: Any) -> None:
             ttk.Checkbutton(output, text="Bypass cabinet", variable=self.cabinet_bypass, command=self.schedule_apply).grid(
                 row=2, column=0, columnspan=3, sticky="w"
             )
-            self._slider(output, 3, "Output trim (dB)", self.output_gain_db, -30, 0)
+            self._slider(output, 3, "Output trim (dB)", self.output_gain_db, -30, 6)
             output.columnconfigure(1, weight=1)
 
             footer = ttk.Frame(root, padding=(12, 8, 12, 12))

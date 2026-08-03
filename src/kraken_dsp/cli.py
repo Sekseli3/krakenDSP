@@ -70,7 +70,7 @@ def _add_amp_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--presence-bright", action="store_true", help="Enable the brighter presence voicing.")
     parser.add_argument("--bass-focus", choices=("loose", "tight"), default="tight", help="Power-section bass focus (default: tight).")
     parser.add_argument("--sag", type=float, default=2.5, help="Power-supply sag from 0 to 10 (default: 2.5).")
-    parser.add_argument("--output-gain-db", type=float, default=-6.0, help="Final output trim in dB (default: -6).")
+    parser.add_argument("--output-gain-db", type=float, default=0.0, help="Final output trim in dB (default: 0).")
     parser.add_argument("--cabinet-ir", type=Path, help="Path to a mono or stereo WAV cabinet impulse response.")
     parser.add_argument("--cabinet-bypass", action="store_true", help="Bypass the cabinet filter (normally harsh; for debugging only).")
 

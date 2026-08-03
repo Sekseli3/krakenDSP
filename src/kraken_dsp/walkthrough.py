@@ -91,7 +91,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--presence-bright", action="store_true", help="Enable the brighter presence voicing.")
     parser.add_argument("--sag", type=float, default=2.5)
     parser.add_argument("--bass-focus", choices=("tight", "loose"), default="tight")
-    parser.add_argument("--output-gain-db", type=float, default=-6.0)
+    parser.add_argument("--output-gain-db", type=float, default=0.0)
     parser.add_argument("--cabinet-ir", type=Path, help="Path to a mono or stereo WAV cabinet impulse response.")
     parser.add_argument("--cabinet-bypass", action="store_true", help="Bypass the cabinet FIR (normally only useful for debugging).")
     return parser.parse_args(argv)
@@ -175,6 +175,24 @@ def _level_db(samples: np.ndarray) -> float:
     return 20.0 * np.log10(max(float(np.sqrt(np.mean(np.square(samples)))), 1e-8))
 
 
+def _spectrum_dbfs(samples: np.ndarray, sample_rate: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return an amplitude-corrected one-sided spectrum in dBFS.
+
+    The old plot used raw FFT bin magnitudes, which rise with the FFT size and
+    made hot intermediate stages appear to overflow the graph. Compensating
+    for the Hann window gives a full-scale sine a 0 dBFS peak instead.
+    """
+
+    window = np.hanning(len(samples))
+    coherent_gain = max(float(np.sum(window)), np.finfo(np.float64).eps)
+    spectrum = np.abs(np.fft.rfft(samples * window)) / (coherent_gain / 2.0)
+    spectrum[0] *= 0.5
+    if len(samples) % 2 == 0 and len(spectrum) > 1:
+        spectrum[-1] *= 0.5
+    frequencies = np.fft.rfftfreq(len(samples), 1.0 / sample_rate)
+    return frequencies, 20.0 * np.log10(np.maximum(spectrum, 1e-8))
+
+
 def _render_stage_frame(figure, grid, *, stage_index: int, samples: np.ndarray, sample_rate: int, source_note: str) -> None:
     import matplotlib.patches as patches
 
@@ -222,12 +240,12 @@ def _render_stage_frame(figure, grid, *, stage_index: int, samples: np.ndarray, 
     wave_axis.grid(color="#334155", alpha=0.55)
 
     spectrum_window = min(len(samples), 4_096)
-    spectrum_samples = samples[:spectrum_window] * np.hanning(spectrum_window)
-    frequencies = np.fft.rfftfreq(spectrum_window, 1.0 / sample_rate)
-    magnitude = 20.0 * np.log10(np.maximum(np.abs(np.fft.rfft(spectrum_samples)), 1e-8))
+    frequencies, magnitude = _spectrum_dbfs(samples[:spectrum_window], sample_rate)
     spectrum_axis.semilogx(frequencies[1:], magnitude[1:], color="#a78bfa", linewidth=1.15)
     spectrum_axis.set_xlim(40, min(16_000, sample_rate / 2.0))
-    spectrum_axis.set_ylim(-105, 5)
+    audible = magnitude[(frequencies >= 40) & (frequencies <= min(16_000, sample_rate / 2.0))]
+    upper_limit = float(np.ceil((float(np.max(audible)) + 3.0) / 6.0) * 6.0)
+    spectrum_axis.set_ylim(upper_limit - 90.0, upper_limit)
     spectrum_axis.set_title("Spectrum", color="#e2e8f0", loc="left", weight="bold")
     spectrum_axis.set_xlabel("Hz", color="#cbd5e1")
     spectrum_axis.set_ylabel("dB", color="#cbd5e1")

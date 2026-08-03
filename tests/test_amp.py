@@ -14,7 +14,7 @@ from kraken_dsp.amp import (
     default_cabinet_ir,
     load_cabinet_ir,
 )
-from kraken_dsp.walkthrough import _parse_args, _process_stage_taps
+from kraken_dsp.walkthrough import _parse_args, _process_stage_taps, _spectrum_dbfs
 
 
 @pytest.mark.parametrize("sample_rate", [44_100, 48_000])
@@ -170,6 +170,16 @@ def test_walkthrough_uses_the_full_input_by_default() -> None:
     args = _parse_args([])
 
     assert args.seconds_per_stage is None
+
+
+def test_walkthrough_spectrum_is_scaled_in_dbfs() -> None:
+    sample_rate = 48_000
+    samples = np.sin(2 * np.pi * 1_000 * np.arange(4_800) / sample_rate)
+
+    frequencies, magnitude = _spectrum_dbfs(samples, sample_rate)
+    tone_bin = int(np.argmin(np.abs(frequencies - 1_000)))
+
+    assert magnitude[tone_bin] == pytest.approx(0.0, abs=0.1)
 
 
 def test_walkthrough_final_stage_matches_live_processing_at_the_same_blocksize() -> None:
